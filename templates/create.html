@@ -58,6 +58,11 @@
       </div>
 
       <div class="container">
+        {{if .success}}
+          <div class="alert alert-success">
+            <strong>Success!</strong> Created user {{.username}}.
+          </div>
+        {{end}}
         <form action="/upload" enctype="multipart/form-data" method="post">
           <div class="form-group">
             <label for="username">Username</label>

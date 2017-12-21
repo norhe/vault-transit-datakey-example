@@ -10,12 +10,11 @@ import (
 
 )
 
-var db *sql.DB
-var err error
+//var db *sql.DB
 var tpl *template.Template
 
 
-type user_record struct {
+type user struct {
 	ID        int64
 	Username  string
 	FirstName string
@@ -29,12 +28,13 @@ type user_file struct {
   ID       int64
   UserID   int64
   Mimetype string
+  FileName string
   File     []byte
 }
 
 func initDB() {
   dsn := "vault:vaultpw@tcp(127.0.0.1:3306)/my_app"
-  db, err = sql.Open("mysql", dsn)
+  db, err := sql.Open("mysql", dsn)
 
   defer db.Close()
 
@@ -51,7 +51,7 @@ func initDB() {
 }
 
 func create_tables(db *sql.DB) {
-  _, err = db.Exec("USE my_app")
+  _, err := db.Exec("USE my_app")
   if err != nil {
     log.Fatalln(err)
   }
@@ -83,6 +83,7 @@ func create_tables(db *sql.DB) {
     "`file_id` INT(11) NOT NULL AUTO_INCREMENT, " +
     "`user_id` INT(11) NOT NULL, " +
     "`mime_type` VARCHAR(256) DEFAULT NULL, " +
+    "`file_name` VARCHAR(256) DEFAULT NULL, " +
     "`file` BLOB DEFAULT NULL, " +
     "PRIMARY KEY (file_id) " +
     ") engine=InnoDB;"
@@ -109,6 +110,7 @@ func main() {
   http.HandleFunc("/view", viewHandler)
   http.HandleFunc("/create", createHandler)
   http.HandleFunc("/update", updateHandler)
+  http.HandleFunc("/upload", uploadHandler)
 
   // run the server
   log.Printf("Server is running at http://%s", url)
@@ -116,17 +118,59 @@ func main() {
 }
 
 func indexHandler(w http.ResponseWriter, req *http.Request) {
-  tpl.ExecuteTemplate(w, "index.html", nil)
+  err := tpl.ExecuteTemplate(w, "index.html", nil)
+  if err != nil {
+    log.Fatalln(err)
+  }
 }
 
 func createHandler(w http.ResponseWriter, req *http.Request) {
-  tpl.ExecuteTemplate(w, "create.html", nil)
+  err := tpl.ExecuteTemplate(w, "create.html", nil)
+  if err != nil {
+    log.Fatalln(err)
+  }
 }
 
 func viewHandler(w http.ResponseWriter, req *http.Request) {
-  tpl.ExecuteTemplate(w, "view.html", nil)
+  err := tpl.ExecuteTemplate(w, "view.html", nil)
+  if err != nil {
+    log.Fatalln(err)
+  }
 }
 
 func updateHandler(w http.ResponseWriter, req *http.Request) {
-  tpl.ExecuteTemplate(w, "update.html", nil)
+  err := tpl.ExecuteTemplate(w, "update.html", nil)
+  if err != nil {
+    log.Fatalln(err)
+  }
+}
+
+// form endpoint
+func uploadHandler(w http.ResponseWriter, req *http.Request) {
+  if req.Method == http.MethodPost {
+		usr := user{}
+		usr.Username = req.FormValue("username")
+		usr.FirstName = req.FormValue("firstname")
+		usr.LastName = req.FormValue("lastname")
+    usr.Address = req.FormValue("address")
+
+		/*_, e = db.Exec(
+			"INSERT INTO users (username, first_name, last_name, password) VALUES (?, ?, ?, ?)",
+			usr.Username,
+			usr.FirstName,
+			usr.LastName,
+			usr.Password,
+		)
+		checkErr(e)*/
+    log.Printf("Retrieved from form: Username: %s, FirstName: %s, LastName: %s, Address: %s", usr.Username, usr.FirstName, usr.LastName, usr.Address)
+		err := tpl.ExecuteTemplate(w, "create.html", map[string]interface{} {
+      "success": true,
+      "username": usr.Username,
+    })
+    if err != nil {
+      log.Println(err)
+    }
+		return
+	}
+	http.Error(w, "Method Not Supported", http.StatusMethodNotAllowed)
 }
