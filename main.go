@@ -10,7 +10,7 @@ import (
 
 )
 
-//var db *sql.DB
+var db *sql.DB
 var tpl *template.Template
 
 
@@ -32,11 +32,9 @@ type user_file struct {
   File     []byte
 }
 
-func initDB() {
+func initDB() *sql.DB {
   dsn := "vault:vaultpw@tcp(127.0.0.1:3306)/my_app"
   db, err := sql.Open("mysql", dsn)
-
-  defer db.Close()
 
   if err != nil {
     panic(err)
@@ -48,6 +46,8 @@ func initDB() {
   }
 
   create_tables(db)
+
+  return db
 }
 
 func create_tables(db *sql.DB) {
@@ -63,8 +63,6 @@ func create_tables(db *sql.DB) {
     "`first_name` VARCHAR(256) NULL, " +
     "`last_name` VARCHAR(256) NULL, " +
     "`address` VARCHAR(256) NOT NULL, " +
-    "`mime_type` VARCHAR(256) DEFAULT NULL, " +
-    "`photo` BLOB DEFAULT NULL, " +
     "`datakey` VARCHAR(256) DEFAULT NULL, " +
     "PRIMARY KEY (user_id) " +
     ") engine=InnoDB;"
@@ -99,7 +97,8 @@ func initTemplates() {
 }
 
 func main() {
-  initDB()
+  db = initDB()
+  defer db.Close()
   initTemplates()
 
   url := "0.0.0.0:1234" // Listen on all interfaces
@@ -110,7 +109,7 @@ func main() {
   http.HandleFunc("/view", viewHandler)
   http.HandleFunc("/create", createHandler)
   http.HandleFunc("/update", updateHandler)
-  http.HandleFunc("/upload", uploadHandler)
+  http.HandleFunc("/createRecord", createRecordHandler)
 
   // run the server
   log.Printf("Server is running at http://%s", url)
@@ -146,7 +145,7 @@ func updateHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 // form endpoint
-func uploadHandler(w http.ResponseWriter, req *http.Request) {
+func createRecordHandler(w http.ResponseWriter, req *http.Request) {
   if req.Method == http.MethodPost {
 		usr := user{}
 		usr.Username = req.FormValue("username")
@@ -154,16 +153,20 @@ func uploadHandler(w http.ResponseWriter, req *http.Request) {
 		usr.LastName = req.FormValue("lastname")
     usr.Address = req.FormValue("address")
 
-		/*_, e = db.Exec(
-			"INSERT INTO users (username, first_name, last_name, password) VALUES (?, ?, ?, ?)",
+		_, err := db.Exec(
+			"INSERT INTO user_data (user_name, first_name, last_name, address) VALUES (?, ?, ?, ?)",
 			usr.Username,
 			usr.FirstName,
 			usr.LastName,
-			usr.Password,
+			usr.Address,
 		)
-		checkErr(e)*/
-    log.Printf("Retrieved from form: Username: %s, FirstName: %s, LastName: %s, Address: %s", usr.Username, usr.FirstName, usr.LastName, usr.Address)
-		err := tpl.ExecuteTemplate(w, "create.html", map[string]interface{} {
+
+    if err != nil {
+      log.Println(err)
+    }
+
+     log.Printf("Retrieved from form: Username: %s, FirstName: %s, LastName: %s, Address: %s", usr.Username, usr.FirstName, usr.LastName, usr.Address)
+		err = tpl.ExecuteTemplate(w, "create.html", map[string]interface{} {
       "success": true,
       "username": usr.Username,
     })
