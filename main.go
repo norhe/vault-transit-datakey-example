@@ -4,7 +4,7 @@ import (
   "database/sql"
   "html/template"
   "log"
-  //"net/http"
+  "net/http"
 
   _ "github.com/go-sql-driver/mysql"
 
@@ -32,7 +32,7 @@ type user_file struct {
   File     []byte
 }
 
-func init_db() {
+func initDB() {
   dsn := "vault:vaultpw@tcp(127.0.0.1:3306)/my_app"
   db, err = sql.Open("mysql", dsn)
 
@@ -93,12 +93,41 @@ func create_tables(db *sql.DB) {
     }
 }
 
-func init_templates() {
+func initTemplates() {
   tpl = template.Must(template.ParseGlob("templates/*"))
 }
 
 func main() {
   //defer db.Close()
-  init_db()
-  init_templates()
+  initDB()
+  initTemplates()
+
+  url := "0.0.0.0:1234"
+
+  // set up routes
+  http.Handle("/favicon.ico", http.NotFoundHandler())
+  http.HandleFunc("/", indexHandler)
+  http.HandleFunc("/view", viewHandler)
+  http.HandleFunc("/create", createHandler)
+  http.HandleFunc("/update", updateHandler)
+
+  // run the server
+  log.Printf("Server is running at http://%s", url)
+  log.Fatalln(http.ListenAndServe(url, nil))
+}
+
+func indexHandler(w http.ResponseWriter, req *http.Request) {
+  tpl.ExecuteTemplate(w, "index.html", nil)
+}
+
+func createHandler(w http.ResponseWriter, req *http.Request) {
+  tpl.ExecuteTemplate(w, "create.html", nil)
+}
+
+func viewHandler(w http.ResponseWriter, req *http.Request) {
+  tpl.ExecuteTemplate(w, "view.html", nil)
+}
+
+func updateHandler(w http.ResponseWriter, req *http.Request) {
+  tpl.ExecuteTemplate(w, "update.html", nil)
 }
