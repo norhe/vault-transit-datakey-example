@@ -98,11 +98,10 @@ func initTemplates() {
 }
 
 func main() {
-  //defer db.Close()
   initDB()
   initTemplates()
 
-  url := "0.0.0.0:1234"
+  url := "0.0.0.0:1234" // Listen on all interfaces
 
   // set up routes
   http.Handle("/favicon.ico", http.NotFoundHandler())
