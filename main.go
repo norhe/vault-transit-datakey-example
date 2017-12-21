@@ -131,7 +131,27 @@ func createHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func viewHandler(w http.ResponseWriter, req *http.Request) {
-  err := tpl.ExecuteTemplate(w, "view.html", nil)
+  rows, err := db.Query(
+		`SELECT user_id,
+			user_name,
+			first_name,
+			last_name,
+			address
+		FROM user_data LIMIT 10;`)
+
+  if err != nil {
+    log.Println(err)
+  }
+
+  users := make([]user, 0, 10)
+  for rows.Next() {
+		usr := user{}
+		rows.Scan(&usr.ID, &usr.Username, &usr.FirstName, &usr.LastName, &usr.Address)
+		users = append(users, usr)
+	}
+	log.Println(users)
+
+  err = tpl.ExecuteTemplate(w, "view.html", users)
   if err != nil {
     log.Fatalln(err)
   }
