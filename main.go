@@ -5,8 +5,11 @@ import (
   "html/template"
   "log"
   "net/http"
+  //"encoding/base64"
+  "io/ioutil"
 
   _ "github.com/go-sql-driver/mysql"
+
 
 )
 
@@ -82,7 +85,7 @@ func create_tables(db *sql.DB) {
     "`user_id` INT(11) NOT NULL, " +
     "`mime_type` VARCHAR(256) DEFAULT NULL, " +
     "`file_name` VARCHAR(256) DEFAULT NULL, " +
-    "`file` BLOB DEFAULT NULL, " +
+    "`file` LONGBLOB DEFAULT NULL, " +
     "PRIMARY KEY (file_id) " +
     ") engine=InnoDB;"
 
@@ -131,13 +134,27 @@ func createHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func viewHandler(w http.ResponseWriter, req *http.Request) {
+  err := tpl.ExecuteTemplate(w, "view.html", getUsers(10))
+  if err != nil {
+    log.Fatalln(err)
+  }
+}
+
+func updateHandler(w http.ResponseWriter, req *http.Request) {
+  err := tpl.ExecuteTemplate(w, "update.html", nil)
+  if err != nil {
+    log.Fatalln(err)
+  }
+}
+
+func getUsers(limit int) []user {
   rows, err := db.Query(
 		`SELECT user_id,
 			user_name,
 			first_name,
 			last_name,
 			address
-		FROM user_data LIMIT 10;`)
+		FROM user_data LIMIT ?;`, limit)
 
   if err != nil {
     log.Println(err)
@@ -151,29 +168,68 @@ func viewHandler(w http.ResponseWriter, req *http.Request) {
 	}
 	log.Println(users)
 
-  err = tpl.ExecuteTemplate(w, "view.html", users)
-  if err != nil {
-    log.Fatalln(err)
-  }
+  return users
 }
 
-func updateHandler(w http.ResponseWriter, req *http.Request) {
-  err := tpl.ExecuteTemplate(w, "update.html", nil)
+
+func getUserByName(username, firstname, lastname string) user {
+  var usr user
+  rows, err := db.Query(`SELECT user_id, user_name, first_name, last_name, address
+    FROM users
+    WHERE user_name = ?
+    AND first_name = ?
+    AND last_name = ?`,
+    username, firstname, lastname)
   if err != nil {
-    log.Fatalln(err)
+  	log.Fatal(err)
   }
+  defer rows.Close()
+  for rows.Next() {
+    usr := user{}
+    rows.Scan(&usr.ID, &usr.Username, &usr.FirstName, &usr.LastName, &usr.Address)
+  }
+  err = rows.Err()
+  if err != nil {
+  	log.Fatal(err)
+  }
+  return usr
+}
+
+func getUserId(username, firstname, lastname string) int64 {
+  rows, err := db.Query("SELECT user_id FROM users WHERE user_name = ? AND first_name = ? AND last_name = ?", username, firstname, lastname)
+  if err != nil {
+  	log.Fatal(err)
+  }
+
+  defer rows.Close()
+
+  usr := user{}
+  for rows.Next() {
+  	err := rows.Scan(&usr.ID)
+  	if err != nil {
+  		log.Fatal(err)
+  	}
+  }
+
+  err = rows.Err()
+  if err != nil {
+  	log.Fatal(err)
+  }
+
+  return usr.ID
 }
 
 // form endpoint
 func createRecordHandler(w http.ResponseWriter, req *http.Request) {
   if req.Method == http.MethodPost {
-		usr := user{}
+    var err error
+    usr := user{}
 		usr.Username = req.FormValue("username")
 		usr.FirstName = req.FormValue("firstname")
 		usr.LastName = req.FormValue("lastname")
     usr.Address = req.FormValue("address")
 
-		_, err := db.Exec(
+    result, err := db.Exec(
 			"INSERT INTO user_data (user_name, first_name, last_name, address) VALUES (?, ?, ?, ?)",
 			usr.Username,
 			usr.FirstName,
@@ -185,11 +241,45 @@ func createRecordHandler(w http.ResponseWriter, req *http.Request) {
       log.Println(err)
     }
 
-     log.Printf("Retrieved from form: Username: %s, FirstName: %s, LastName: %s, Address: %s", usr.Username, usr.FirstName, usr.LastName, usr.Address)
+    file, handler, err := req.FormFile("userfile")
+    if err == nil && file != nil && handler != nil {
+      log.Printf("Found a formfile: %s with headers: %s", handler.Filename, handler.Header.Get("Content-Type"))
+      if err != nil {
+        log.Println(err)
+      }
+
+      filedata, err := ioutil.ReadAll(file)
+
+      if err != nil {
+        log.Printf("Error reading file data: %s", err)
+      }
+
+      user_id, err := result.LastInsertId()
+      if err != nil {
+        log.Println(err)
+      }
+
+      _, err = db.Exec(
+        "INSERT INTO `user_files` (`user_id`, `mime_type`, `file_name`, `file`) VALUES (?, ?, ?, ?)",
+        user_id,
+        handler.Header.Get("Content-Type"), // need user_id
+        handler.Filename,
+        filedata,
+      )
+      defer file.Close()
+      if err != nil {
+        log.Printf("Error saving file: %s", err)
+      }
+    } else {
+      log.Printf("Error retrieving file: %s", err)
+    }
+
+    log.Printf("Saved from form: Username: %s, FirstName: %s, LastName: %s, Address: %s", usr.Username, usr.FirstName, usr.LastName, usr.Address)
 		err = tpl.ExecuteTemplate(w, "create.html", map[string]interface{} {
       "success": true,
       "username": usr.Username,
     })
+
     if err != nil {
       log.Println(err)
     }
