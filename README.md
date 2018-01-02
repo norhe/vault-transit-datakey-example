@@ -1,4 +1,4 @@
-# Vault Transit Example
+# Vault Transit Datakey Example
 
 
 ## Usage
