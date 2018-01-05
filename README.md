@@ -19,6 +19,15 @@ docker run --name mysql-transit \
   -d mysql/mysql-server:5.7
 ```
 
+To configure Vault:
+
+```
+vault server -dev -dev-root-token-id=root &
+export VAULT_ADDR='http://127.0.0.1:8200'
+vault mount transit
+vault write -f transit/keys/my_app_key
+```
+
 You then need to run the app:
 
 ```
@@ -26,3 +35,8 @@ go run main.go
 ```
 
 You can then view the app using a browser at http://localhost:1234.
+
+You can inspect the contents of the database with:
+```
+docker exec -it mysql-transit mysql -uroot -proot
+```
