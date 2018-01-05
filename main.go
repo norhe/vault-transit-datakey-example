@@ -9,13 +9,13 @@ import (
   "io/ioutil"
 
   _ "github.com/go-sql-driver/mysql"
-
+  "github.com/hashicorp/vault/api"
 
 )
 
 var db *sql.DB
 var tpl *template.Template
-
+var vlt *api.Client
 
 type user struct {
 	ID        int64
@@ -34,6 +34,18 @@ type user_file struct {
   Mimetype string
   FileName string
   File     []byte
+}
+
+func initVaultClient() (*api.Client, error) {
+	cfg := api.DefaultConfig()
+	cfg.Address = "http://127.0.0.1:8200"
+
+	c, err := api.NewClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return c, nil
 }
 
 func initDB() *sql.DB {
@@ -104,6 +116,13 @@ func main() {
   db = initDB()
   defer db.Close()
   initTemplates()
+
+  vlt, err := initVaultClient()
+  if err != nil {
+    log.Fatalln(err)
+  }
+
+  log.Println(vlt.Sys().SealStatus())
 
   url := "0.0.0.0:1234" // Listen on all interfaces
 

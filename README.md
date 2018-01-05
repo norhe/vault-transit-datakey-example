@@ -31,7 +31,7 @@ vault write -f transit/keys/my_app_key
 You then need to run the app:
 
 ```
-go run main.go
+VAULT_TOKEN=root go run main.go
 ```
 
 You can then view the app using a browser at http://localhost:1234.
