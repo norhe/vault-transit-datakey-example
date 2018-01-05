@@ -17,6 +17,8 @@ var db *sql.DB
 var tpl *template.Template
 var vlt *api.Client
 
+const KEY_NAME = "my_app_key"
+
 type user struct {
 	ID        int64
 	Username  string
@@ -36,16 +38,16 @@ type user_file struct {
   File     []byte
 }
 
-func initVaultClient() (*api.Client, error) {
+func initVaultClient() *api.Client {
 	cfg := api.DefaultConfig()
 	cfg.Address = "http://127.0.0.1:8200"
 
 	c, err := api.NewClient(cfg)
 	if err != nil {
-		return nil, err
+		log.Fatalln(err)
 	}
 
-	return c, nil
+	return c
 }
 
 func initDB() *sql.DB {
@@ -117,12 +119,18 @@ func main() {
   defer db.Close()
   initTemplates()
 
-  vlt, err := initVaultClient()
-  if err != nil {
-    log.Fatalln(err)
-  }
+  vlt = initVaultClient()
 
   log.Println(vlt.Sys().SealStatus())
+  secret, err := getDataKey()
+  if err != nil {
+    log.Printf("Error getting datakey: %s", err)
+  }
+
+  if secret == nil {
+    log.Println("No secret retrieved.")
+  }
+  log.Println(secret.Data["ciphertext"])
 
   url := "0.0.0.0:1234" // Listen on all interfaces
 
@@ -260,12 +268,23 @@ func createRecordHandler(w http.ResponseWriter, req *http.Request) {
 		usr.LastName = req.FormValue("lastname")
     usr.Address = req.FormValue("address")
 
+    secret, err := getDataKey()
+    if err != nil {
+      log.Println(err)
+    }
+
+    // retrieve ciphertext to save, plaintext to encrypt files
+    ciphertext, plaintext := secret.Data["ciphertext"], secret.Data["plaintext"]
+
+    log.Printf("Secret ciphertext: %s, plaintext: %s", ciphertext, plaintext)
+
     result, err := db.Exec(
-			"INSERT INTO user_data (user_name, first_name, last_name, address) VALUES (?, ?, ?, ?)",
+			"INSERT INTO user_data (user_name, first_name, last_name, address, datakey) VALUES (?, ?, ?, ?, ?)",
 			usr.Username,
 			usr.FirstName,
 			usr.LastName,
 			usr.Address,
+      ciphertext,
 		)
 
     if err != nil {
@@ -317,4 +336,9 @@ func createRecordHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	http.Error(w, "Method Not Supported", http.StatusMethodNotAllowed)
+}
+
+func getDataKey() (*api.Secret, error) {
+  datakey, err := vlt.Logical().Write("transit/datakey/plaintext/" + KEY_NAME, nil)
+  return datakey, err
 }
