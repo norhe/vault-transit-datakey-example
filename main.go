@@ -10,6 +10,7 @@ import (
   "crypto/aes"
   "crypto/cipher"
   "crypto/rand"
+  "strconv"
   //"encoding/hex"
   "io"
   //"bytes"
@@ -32,7 +33,7 @@ type user struct {
 	LastName  string
   Address   string
   Files     []user_file
-  FileNames string
+  FileNames []string
   Datakey   string
 }
 
@@ -175,21 +176,32 @@ func viewHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func updateHandler(w http.ResponseWriter, req *http.Request) {
-  err := tpl.ExecuteTemplate(w, "update.html", nil)
-  if err != nil {
-    log.Fatalln(err)
+  log.Printf("path is: %s", req.URL.Path[:])
+  if req.URL.Path[len("/update"):] != "" {
+    user_id, err := strconv.ParseInt(req.URL.Path[len("/update/"):], 0, 16)
+    if err != nil {
+      log.Fatalln(err)
+    }
+    log.Printf("user_id: %s", user_id)
+    user := getUserByID(user_id)
+
+    err = tpl.ExecuteTemplate(w, "update.html", user)
+    if err != nil {
+      log.Fatalln(err)
+    }
+  } else {
+    err := tpl.ExecuteTemplate(w, "update.html", map[string]interface{} {
+      "error": true,
+      "msg": "Please select a user to edit from list.",
+    })
+    if err != nil {
+      log.Fatalln(err)
+    }
   }
+
 }
 
 func getUsers(limit int) []user {
-  /*rows, err := db.Query(
-		`SELECT user_id,
-			user_name,
-			first_name,
-			last_name,
-			address
-		FROM user_data LIMIT ?;`, limit)*/
-
   rows, err := db.Query(
 		`SELECT ud.user_id,
             ud.user_name,
@@ -232,6 +244,34 @@ func getUserByName(username, firstname, lastname string) user {
   for rows.Next() {
     usr := user{}
     rows.Scan(&usr.ID, &usr.Username, &usr.FirstName, &usr.LastName, &usr.Address)
+  }
+  err = rows.Err()
+  if err != nil {
+  	log.Fatal(err)
+  }
+  return usr
+}
+
+func getUserByID(user_id int64) user {
+  var usr user
+  rows, err := db.Query(
+		`SELECT ud.user_id,
+            ud.user_name,
+            ud.first_name,
+            ud.last_name,
+            ud.address,
+            uf.file_name
+     FROM user_data AS ud, user_files AS uf
+     WHERE ud.user_id=?
+     AND ud.user_id=uf.user_id`, user_id)
+
+  if err != nil {
+  	log.Fatal(err)
+  }
+  defer rows.Close()
+  for rows.Next() {
+    usr := user{}
+		rows.Scan(&usr.ID, &usr.Username, &usr.FirstName, &usr.LastName, &usr.Address, &usr.FileNames)
   }
   err = rows.Err()
   if err != nil {
