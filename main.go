@@ -24,6 +24,7 @@ type user struct {
 	LastName  string
   Address   string
   Files     []user_file
+  FileNames string
   Datakey   string
 }
 
@@ -148,29 +149,40 @@ func updateHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func getUsers(limit int) []user {
-  rows, err := db.Query(
+  /*rows, err := db.Query(
 		`SELECT user_id,
 			user_name,
 			first_name,
 			last_name,
 			address
-		FROM user_data LIMIT ?;`, limit)
+		FROM user_data LIMIT ?;`, limit)*/
+
+  rows, err := db.Query(
+		`SELECT ud.user_id,
+            ud.user_name,
+            ud.first_name,
+            ud.last_name,
+            ud.address,
+            uf.file_name
+     FROM user_data AS ud, user_files AS uf
+     WHERE ud.user_id=uf.user_id LIMIT ?;`, limit)
 
   if err != nil {
     log.Println(err)
   }
 
+  log.Println(rows)
+
   users := make([]user, 0, 10)
   for rows.Next() {
 		usr := user{}
-		rows.Scan(&usr.ID, &usr.Username, &usr.FirstName, &usr.LastName, &usr.Address)
+		rows.Scan(&usr.ID, &usr.Username, &usr.FirstName, &usr.LastName, &usr.Address, &usr.FileNames)
 		users = append(users, usr)
 	}
 	log.Println(users)
 
   return users
 }
-
 
 func getUserByName(username, firstname, lastname string) user {
   var usr user
