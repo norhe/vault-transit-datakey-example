@@ -5,8 +5,14 @@ import (
   "html/template"
   "log"
   "net/http"
-  //"encoding/base64"
+  "encoding/base64"
   "io/ioutil"
+  "crypto/aes"
+  "crypto/cipher"
+  "crypto/rand"
+  //"encoding/hex"
+  "io"
+  //"bytes"
 
   _ "github.com/go-sql-driver/mysql"
   "github.com/hashicorp/vault/api"
@@ -274,7 +280,11 @@ func createRecordHandler(w http.ResponseWriter, req *http.Request) {
     }
 
     // retrieve ciphertext to save, plaintext to encrypt files
-    ciphertext, plaintext := secret.Data["ciphertext"], secret.Data["plaintext"]
+    ciphertext := secret.Data["ciphertext"].(string)
+    plaintext, err := base64.StdEncoding.DecodeString(secret.Data["plaintext"].(string))
+    if err != nil {
+      log.Printf("Error decoding base64: %s", err)
+    }
 
     log.Printf("Secret ciphertext: %s, plaintext: %s", ciphertext, plaintext)
 
@@ -309,12 +319,14 @@ func createRecordHandler(w http.ResponseWriter, req *http.Request) {
         log.Println(err)
       }
 
+      encryptedFile := encryptFile(filedata, plaintext)
+
       _, err = db.Exec(
         "INSERT INTO `user_files` (`user_id`, `mime_type`, `file_name`, `file`) VALUES (?, ?, ?, ?)",
         user_id,
         handler.Header.Get("Content-Type"), // need user_id
         handler.Filename,
-        filedata,
+        encryptedFile,
       )
       defer file.Close()
       if err != nil {
@@ -341,4 +353,52 @@ func createRecordHandler(w http.ResponseWriter, req *http.Request) {
 func getDataKey() (*api.Secret, error) {
   datakey, err := vlt.Logical().Write("transit/datakey/plaintext/" + KEY_NAME, nil)
   return datakey, err
+}
+
+func encryptFile(contents []byte, key []byte) ([]byte) {
+  block, err := aes.NewCipher(key)
+  if err != nil {
+    log.Fatalf("Error creating cipher: %s", err)
+  }
+
+  nonce := make([]byte, 12)
+  if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+    log.Fatalf("Error creating nonce: %s", err)
+  }
+
+  aesgcm, err := cipher.NewGCM(block)
+  if err != nil {
+    log.Fatalf("Error creating aesgcm: %s", err)
+  }
+
+  ciphertext := aesgcm.Seal(nil, nonce, contents, nil)
+  c_text_w_nonce := make([]byte, cap(ciphertext) + 12)
+  copy(c_text_w_nonce[0:12], nonce)
+  copy(c_text_w_nonce[12:], ciphertext)
+
+  /*log.Printf("Returning encrypted file: %b", c_text_w_nonce[0:30])
+  log.Println("testing decrypt...")
+  dec := decryptFile(c_text_w_nonce, key)
+  log.Printf("decrypted is equal: %s", bytes.Compare(dec[0:20], contents[0:20]))*/
+  return c_text_w_nonce
+}
+
+func decryptFile(ciphertext []byte, key []byte) []byte {
+  block, err := aes.NewCipher(key)
+  if err != nil {
+    log.Fatalf("Error creating cipher: %s", err)
+  }
+
+  nonce := ciphertext[0:12]
+
+  aesgcm, err := cipher.NewGCM(block)
+  if err != nil {
+    log.Fatalf("Error creating aesgcm: %s", err)
+  }
+
+  contents, err := aesgcm.Open(nil, nonce, ciphertext[12:], nil)
+  if err != nil {
+    log.Fatalf("Error decrypting file: %s", err)
+  }
+  return contents
 }
