@@ -98,9 +98,10 @@
               <h2>Manage Files</h2>
               <p>Download Existing Files:</p>
               <ul>
-
-              <li><a href="/file/{{.ID}}/{{.FileNames}}">{{.FileNames}}</li>
-
+                {{$id := .ID}}
+                {{ range .FileNames }}
+                  <li><a href="/file/{{$id}}/{{.}}">{{.}}</li>
+                {{ end }}
               </ul>
             </div>
           </div>

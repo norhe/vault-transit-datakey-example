@@ -282,7 +282,9 @@ func getUserByID(user_id int64) user {
 
   defer rows.Close()
   for rows.Next() {
-		rows.Scan(&usr.ID, &usr.Username, &usr.FirstName, &usr.LastName, &usr.Address, &usr.FileNames)
+    var fnames string
+		rows.Scan(&usr.ID, &usr.Username, &usr.FirstName, &usr.LastName, &usr.Address, &fnames)
+    usr.FileNames = strings.Split(fnames, ",")
   }
   err = rows.Err()
   if err != nil {
