@@ -33,7 +33,7 @@ type user struct {
 	LastName  string
   Address   string
   Files     []user_file
-  FileNames []string
+  FileNames string
   Datakey   string
 }
 
@@ -177,11 +177,11 @@ func viewHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func updateHandler(w http.ResponseWriter, req *http.Request) {
-  if req.URL.Path[len("/update"):] == "" {
-    err := tpl.ExecuteTemplate(w, "update.html", map[string]interface{} {
-      "error": true,
-      "msg": "Please select a user to edit from list.",
-    })
+  p := req.URL.Path[len("/update"):]
+
+  if p == "" || p == "/" {
+    log.Println("no arg")
+    err := tpl.ExecuteTemplate(w, "update.html", nil)
     if err != nil {
       log.Fatalln(err)
     }
@@ -213,9 +213,11 @@ func getUsers(limit int) []user {
             ud.first_name,
             ud.last_name,
             ud.address,
-            uf.file_name
+            GROUP_CONCAT(uf.file_name SEPARATOR ',')
      FROM user_data AS ud, user_files AS uf
-     WHERE ud.user_id=uf.user_id LIMIT ?;`, limit)
+     WHERE ud.user_id=uf.user_id
+     GROUP BY ud.user_id
+     LIMIT ?;`, limit)
 
   if err != nil {
     log.Println(err)
@@ -265,16 +267,15 @@ func getUserByID(user_id int64) user {
             ud.first_name,
             ud.last_name,
             ud.address,
-            uf.file_name
+            GROUP_CONCAT(uf.file_name SEPARATOR ',')
      FROM user_data AS ud, user_files AS uf
      WHERE ud.user_id=?
-     AND ud.user_id=uf.user_id`, user_id)
+     AND ud.user_id=uf.user_id
+     GROUP BY ud.user_id`, user_id)
 
   if err != nil {
   	log.Fatal(err)
   }
-
-  log.Printf("%+v", rows)
 
   defer rows.Close()
   for rows.Next() {
