@@ -146,7 +146,8 @@ func main() {
   http.HandleFunc("/", indexHandler)
   http.HandleFunc("/view", viewHandler)
   http.HandleFunc("/create", createHandler)
-  http.HandleFunc("/update", updateHandler)
+  http.HandleFunc("/update/", updateHandler)
+  http.HandleFunc("/updateRecord", updateRecordHandler)
   http.HandleFunc("/createRecord", createRecordHandler)
 
   // run the server
@@ -176,20 +177,7 @@ func viewHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func updateHandler(w http.ResponseWriter, req *http.Request) {
-  log.Printf("path is: %s", req.URL.Path[:])
-  if req.URL.Path[len("/update"):] != "" {
-    user_id, err := strconv.ParseInt(req.URL.Path[len("/update/"):], 0, 16)
-    if err != nil {
-      log.Fatalln(err)
-    }
-    log.Printf("user_id: %s", user_id)
-    user := getUserByID(user_id)
-
-    err = tpl.ExecuteTemplate(w, "update.html", user)
-    if err != nil {
-      log.Fatalln(err)
-    }
-  } else {
+  if req.URL.Path[len("/update"):] == "" {
     err := tpl.ExecuteTemplate(w, "update.html", map[string]interface{} {
       "error": true,
       "msg": "Please select a user to edit from list.",
@@ -197,8 +185,25 @@ func updateHandler(w http.ResponseWriter, req *http.Request) {
     if err != nil {
       log.Fatalln(err)
     }
-  }
+  } else {
+    user_id, err := strconv.ParseInt(req.URL.Path[len("/update/"):], 0, 16)
+    if err != nil {
+      log.Fatalln(err)
+    }
+    log.Printf("user_id: %d", user_id)
+    usr := getUserByID(user_id)
 
+    log.Printf("user: %+v", usr)
+
+    err = tpl.ExecuteTemplate(w, "update.html", usr)
+    if err != nil {
+      log.Fatalln(err)
+    }
+  }
+}
+
+func updateRecordHandler(w http.ResponseWriter, req *http.Request) {
+  log.Println("handler")
 }
 
 func getUsers(limit int) []user {
@@ -268,9 +273,11 @@ func getUserByID(user_id int64) user {
   if err != nil {
   	log.Fatal(err)
   }
+
+  log.Printf("%+v", rows)
+
   defer rows.Close()
   for rows.Next() {
-    usr := user{}
 		rows.Scan(&usr.ID, &usr.Username, &usr.FirstName, &usr.LastName, &usr.Address, &usr.FileNames)
   }
   err = rows.Err()
