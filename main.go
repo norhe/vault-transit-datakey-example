@@ -11,6 +11,7 @@ import (
   "crypto/cipher"
   "crypto/rand"
   "strconv"
+  "strings"
   //"encoding/hex"
   "io"
   //"bytes"
@@ -33,7 +34,7 @@ type user struct {
 	LastName  string
   Address   string
   Files     []user_file
-  FileNames string
+  FileNames []string
   Datakey   string
 }
 
@@ -228,7 +229,9 @@ func getUsers(limit int) []user {
   users := make([]user, 0, 10)
   for rows.Next() {
 		usr := user{}
-		rows.Scan(&usr.ID, &usr.Username, &usr.FirstName, &usr.LastName, &usr.Address, &usr.FileNames)
+    var fnames string
+		rows.Scan(&usr.ID, &usr.Username, &usr.FirstName, &usr.LastName, &usr.Address, &fnames)
+    usr.FileNames = strings.Split(fnames, ",")
 		users = append(users, usr)
 	}
 	log.Println(users)
