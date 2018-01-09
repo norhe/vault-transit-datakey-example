@@ -14,7 +14,7 @@ import (
   "strings"
   //"encoding/hex"
   "io"
-  //"bytes"
+  "bytes"
 
   _ "github.com/go-sql-driver/mysql"
   "github.com/hashicorp/vault/api"
@@ -150,6 +150,7 @@ func main() {
   http.HandleFunc("/update/", updateHandler)
   http.HandleFunc("/updateRecord", updateRecordHandler)
   http.HandleFunc("/createRecord", createRecordHandler)
+  http.HandleFunc("/file/", downloadHandler)
 
   // run the server
   log.Printf("Server is running at http://%s", url)
@@ -161,6 +162,69 @@ func indexHandler(w http.ResponseWriter, req *http.Request) {
   if err != nil {
     log.Fatalln(err)
   }
+}
+
+// expected URL is something like /file/23/the_file.jpg
+func downloadHandler(w http.ResponseWriter, req *http.Request) {
+  p := req.URL.Path[len("/file/"):]
+
+  if p == "" {
+    log.Println("no arg")
+    http.Error(w, "Get `filename` not specified in the URL", 400)
+    return
+  }
+
+  elements := strings.Split(p, "/")
+  user_id, err := strconv.ParseInt(elements[0], 10, 64)
+  if err != nil {
+    log.Fatalf("Error retrieving user_id: %s", err)
+  }
+
+  fname := elements[1]
+
+  if fname == "" || user_id == 0 {
+    http.Error(w, "Get `filename` not specified in the URL", 400)
+    return
+  }
+  // retrieve the file
+  f, err := getFileFromDB(fname, user_id)
+  if err != nil {
+    log.Fatalf("Error retrieving file: %s", err)
+  }
+
+  f_size := strconv.Itoa(len(f.File))
+    // decrypt files
+
+
+  // send file to client
+  // set headers so the browser knows it is a download
+  w.Header().Set("Content-Disposition", "attachment; filename=" + fname )
+  w.Header().Set("Content-Type", f.Mimetype)
+  w.Header().Set("Content-Length", f_size)
+
+  //stream the file to the client
+	io.Copy(w, bytes.NewReader(f.File))
+}
+
+func getFileFromDB(fname string, user_id int64) (user_file, error) {
+  var f user_file
+  f.FileName = fname
+  f.UserID = user_id
+
+  query := "SELECT file_id, `file`, mime_type FROM user_files WHERE file_name = ? AND user_id = ?"
+
+  rows, err := db.Query(query, fname, user_id)
+
+  if err != nil {
+    log.Fatalln(err)
+  }
+
+  for rows.Next() {
+    rows.Scan(&f.ID, &f.File, f.Mimetype)
+  }
+
+  return f, err
+
 }
 
 func createHandler(w http.ResponseWriter, req *http.Request) {
@@ -223,8 +287,6 @@ func getUsers(limit int) []user {
   if err != nil {
     log.Println(err)
   }
-
-  log.Println(rows)
 
   users := make([]user, 0, 10)
   for rows.Next() {
