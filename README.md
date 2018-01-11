@@ -28,6 +28,8 @@ vault mount transit
 vault write -f transit/keys/my_app_key
 ```
 
+Please note that the above command runs Vault in dev mode which means that secrets will not be persisted to disk.  If you stop the Vault process you will not be able to read records saved using any keys it created.  You will need to wipe the records from the database, and begin testing with new records.  
+
 You then need to run the app:
 
 ```
