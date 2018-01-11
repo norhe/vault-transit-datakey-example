@@ -129,16 +129,7 @@ func main() {
 
   vlt = initVaultClient()
 
-  log.Println(vlt.Sys().SealStatus())
-  secret, err := getDataKey()
-  if err != nil {
-    log.Printf("Error getting datakey: %s", err)
-  }
-
-  if secret == nil {
-    log.Println("No secret retrieved.")
-  }
-  log.Println(secret.Data["ciphertext"])
+  //log.Println(vlt.Sys().SealStatus())
 
   url := "0.0.0.0:1234" // Listen on all interfaces
 
@@ -192,18 +183,35 @@ func downloadHandler(w http.ResponseWriter, req *http.Request) {
     log.Fatalf("Error retrieving file: %s", err)
   }
 
+  usr := getUserByID(user_id)
+  if err != nil {
+    log.Fatalf("Could not retrieve user for datakey: %s", err)
+  }
+
   f_size := strconv.Itoa(len(f.File))
-    // decrypt files
+  // decrypt files
+  key, err := vaultDecrypt(usr.Datakey)
+  if err != nil {
+    log.Fatalf("Could not decrypt datakey: %s", err)
+  }
+
+  log.Println(key)
+
+  dec_file, err := decryptFile(f.File, key)
+
+  if err != nil {
+    log.Fatalf("Could not decrypt datakey: %s", err)
+  }
 
 
   // send file to client
   // set headers so the browser knows it is a download
-  w.Header().Set("Content-Disposition", "attachment; filename=" + fname )
+  w.Header().Set("Content-Disposition", "attachment; filename="+fname )
   w.Header().Set("Content-Type", f.Mimetype)
   w.Header().Set("Content-Length", f_size)
 
   //stream the file to the client
-	io.Copy(w, bytes.NewReader(f.File))
+	io.Copy(w, bytes.NewReader(dec_file))
 }
 
 func getFileFromDB(fname string, user_id int64) (user_file, error) {
@@ -332,6 +340,7 @@ func getUserByID(user_id int64) user {
             ud.first_name,
             ud.last_name,
             ud.address,
+            ud.datakey,
             GROUP_CONCAT(uf.file_name SEPARATOR ',')
      FROM user_data AS ud, user_files AS uf
      WHERE ud.user_id=?
@@ -345,7 +354,7 @@ func getUserByID(user_id int64) user {
   defer rows.Close()
   for rows.Next() {
     var fnames string
-		rows.Scan(&usr.ID, &usr.Username, &usr.FirstName, &usr.LastName, &usr.Address, &fnames)
+		rows.Scan(&usr.ID, &usr.Username, &usr.FirstName, &usr.LastName, &usr.Address, &usr.Datakey, &fnames)
     usr.FileNames = strings.Split(fnames, ",")
   }
   err = rows.Err()
@@ -389,7 +398,7 @@ func createRecordHandler(w http.ResponseWriter, req *http.Request) {
 		usr.LastName = req.FormValue("lastname")
     usr.Address = req.FormValue("address")
 
-    secret, err := getDataKey()
+    secret, err := getDatakey()
     if err != nil {
       log.Println(err)
     }
@@ -465,7 +474,7 @@ func createRecordHandler(w http.ResponseWriter, req *http.Request) {
 	http.Error(w, "Method Not Supported", http.StatusMethodNotAllowed)
 }
 
-func getDataKey() (*api.Secret, error) {
+func getDatakey() (*api.Secret, error) {
   datakey, err := vlt.Logical().Write("transit/datakey/plaintext/" + KEY_NAME, nil)
   return datakey, err
 }
@@ -491,14 +500,10 @@ func encryptFile(contents []byte, key []byte) ([]byte) {
   copy(c_text_w_nonce[0:12], nonce)
   copy(c_text_w_nonce[12:], ciphertext)
 
-  /*log.Printf("Returning encrypted file: %b", c_text_w_nonce[0:30])
-  log.Println("testing decrypt...")
-  dec := decryptFile(c_text_w_nonce, key)
-  log.Printf("decrypted is equal: %s", bytes.Compare(dec[0:20], contents[0:20]))*/
   return c_text_w_nonce
 }
 
-func decryptFile(ciphertext []byte, key []byte) []byte {
+func decryptFile(ciphertext []byte, key []byte) ([]byte, error) {
   block, err := aes.NewCipher(key)
   if err != nil {
     log.Fatalf("Error creating cipher: %s", err)
@@ -515,5 +520,22 @@ func decryptFile(ciphertext []byte, key []byte) []byte {
   if err != nil {
     log.Fatalf("Error decrypting file: %s", err)
   }
-  return contents
+  return contents, err
+}
+
+func vaultDecrypt(ciphertext string) ([]byte, error) {
+  decrypted_contents, err := vlt.Logical().Write("transit/decrypt/" + KEY_NAME, map[string]interface{} {
+    "ciphertext": ciphertext,
+  })
+  log.Printf("Decrypted: %+v", decrypted_contents)
+  if err != nil {
+    log.Fatalf("Error decrypting file: %s", err)
+  }
+
+  decoded, err := base64.StdEncoding.DecodeString(decrypted_contents.Data["plaintext"].(string))
+  if err != nil {
+    log.Fatalf("Error decoding decrypted contents: %s", err)
+  }
+
+  return decoded, err
 }
