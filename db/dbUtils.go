@@ -204,6 +204,11 @@ func GetUserByID(user_id int64) models.User {
 		var fnames string
 		rows.Scan(&usr.ID, &usr.Username, &usr.FirstName, &usr.LastName, &usr.Address, &usr.Datakey, &fnames)
 		usr.FileNames = strings.Split(fnames, ",")
+		decr_addr, err := secure.DecryptString(usr.Address)
+		if err != nil {
+			log.Printf("Error decrypting address for update user: %s", err)
+		}
+		usr.Address = string(decr_addr)
 	}
 	err = rows.Err()
 	if err != nil {
