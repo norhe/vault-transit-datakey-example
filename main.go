@@ -162,7 +162,7 @@ func createRecordHandler(w http.ResponseWriter, req *http.Request) {
 		usr.Username = req.FormValue("username")
 		usr.FirstName = req.FormValue("firstname")
 		usr.LastName = req.FormValue("lastname")
-	usr.Address = req.FormValue("address")
+		usr.Address = req.FormValue("address")
 
 	secret, err := secure.GetDatakey()
 	if err != nil {
@@ -178,7 +178,11 @@ func createRecordHandler(w http.ResponseWriter, req *http.Request) {
 
 	log.Printf("Secret ciphertext: %s, plaintext: %s", ciphertext, plaintext)
 
+	// encrypt PII with transit
+	log.Printf("Sending %s to encrypt", usr.Address)
+	enc_address, err := secure.EncryptString(usr.Address)
 
+	usr.Address = string(enc_address)
 	result, err := db.CreateUserWithDatakey(usr, ciphertext)
 
 	if err != nil {
@@ -206,13 +210,7 @@ func createRecordHandler(w http.ResponseWriter, req *http.Request) {
 	  encryptedFile := secure.EncryptFile(filedata, plaintext)
 
 	  _, err = db.CreateUserFile(user_id, handler.Header.Get("Content-Type"), handler.Filename, encryptedFile)
-	  /*_, err = db.Exec(
-		"INSERT INTO `user_files` (`user_id`, `mime_type`, `file_name`, `file`) VALUES (?, ?, ?, ?)",
-		user_id,
-		handler.Header.Get("Content-Type"), // need user_id
-		handler.Filename,
-		encryptedFile,
-	  )*/
+
 	  defer file.Close()
 	  if err != nil {
 		log.Printf("Error saving file: %s", err)
@@ -222,7 +220,8 @@ func createRecordHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	log.Printf("Saved from form: Username: %s, FirstName: %s, LastName: %s, Address: %s", usr.Username, usr.FirstName, usr.LastName, usr.Address)
-		err = tpl.ExecuteTemplate(w, "create.gohtml", map[string]interface{} {
+
+	err = tpl.ExecuteTemplate(w, "create.gohtml", map[string]interface{} {
 	  "success": true,
 	  "username": usr.Username,
 	})

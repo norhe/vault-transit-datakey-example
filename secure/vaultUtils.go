@@ -90,3 +90,23 @@ func DecryptString(ciphertext string) ([]byte, error) {
 
 	return decoded, err
 }
+
+func EncryptString(ciphertext string) (string, error) {
+	log.Printf("Encrypting: %s", ciphertext)
+
+	// Payload must be base64 encoded before sending to Vault
+	encoded := base64.StdEncoding.EncodeToString([]byte(ciphertext))
+
+	log.Printf("Encoded: %s", encoded)
+
+	// Write to Vault
+	encrypted_contents, err := vlt.Logical().Write("transit/encrypt/" + KEY_NAME, map[string]interface{} {
+		"plaintext": encoded,
+	})
+	log.Printf("Encrypted: %+v", encrypted_contents)
+	if err != nil {
+		log.Fatalf("Error encrypting file: %s", err)
+	}
+	
+	return encrypted_contents.Data["ciphertext"].(string), err
+}
