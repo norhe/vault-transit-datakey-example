@@ -7,18 +7,15 @@ import (
   "net/http"
   "encoding/base64"
   "io/ioutil"
-  "crypto/aes"
-  "crypto/cipher"
-  "crypto/rand"
   "strconv"
   "strings"
-  //"encoding/hex"
   "io"
   "bytes"
 
   _ "github.com/go-sql-driver/mysql"
   "github.com/hashicorp/vault/api"
-
+  "github.com/norhe/vault-transit-datakey-example/models"
+  "github.com/norhe/vault-transit-datakey-example/secure"
 )
 
 var db *sql.DB
@@ -27,48 +24,17 @@ var vlt *api.Client
 
 const KEY_NAME = "my_app_key"
 
-type user struct {
-	ID        int64
-	Username  string
-	FirstName string
-	LastName  string
-  Address   string
-  Files     []user_file
-  FileNames []string
-  Datakey   string
-}
-
-type user_file struct {
-  ID       int64
-  UserID   int64
-  Mimetype string
-  FileName string
-  File     []byte
-}
-
-func initVaultClient() *api.Client {
-	cfg := api.DefaultConfig()
-	cfg.Address = "http://127.0.0.1:8200"
-
-	c, err := api.NewClient(cfg)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	return c
-}
-
 func initDB() *sql.DB {
   dsn := "vault:vaultpw@tcp(127.0.0.1:3306)/my_app"
   db, err := sql.Open("mysql", dsn)
 
   if err != nil {
-    panic(err)
+	panic(err)
   }
 
   err = db.Ping()
   if err != nil {
-  	log.Fatalln(err)
+	log.Fatalln(err)
   }
 
   create_tables(db)
@@ -79,43 +45,43 @@ func initDB() *sql.DB {
 func create_tables(db *sql.DB) {
   _, err := db.Exec("USE my_app")
   if err != nil {
-    log.Fatalln(err)
+	log.Fatalln(err)
   }
 
   create_user_table :=
-    "CREATE TABLE IF NOT EXISTS `user_data`(" +
-    "`user_id` INT(11) NOT NULL AUTO_INCREMENT, " +
-    "`user_name` VARCHAR(256) NOT NULL," +
-    "`first_name` VARCHAR(256) NULL, " +
-    "`last_name` VARCHAR(256) NULL, " +
-    "`address` VARCHAR(256) NOT NULL, " +
-    "`datakey` VARCHAR(256) DEFAULT NULL, " +
-    "PRIMARY KEY (user_id) " +
-    ") engine=InnoDB;"
+	"CREATE TABLE IF NOT EXISTS `user_data`(" +
+	"`user_id` INT(11) NOT NULL AUTO_INCREMENT, " +
+	"`user_name` VARCHAR(256) NOT NULL," +
+	"`first_name` VARCHAR(256) NULL, " +
+	"`last_name` VARCHAR(256) NULL, " +
+	"`address` VARCHAR(256) NOT NULL, " +
+	"`datakey` VARCHAR(256) DEFAULT NULL, " +
+	"PRIMARY KEY (user_id) " +
+	") engine=InnoDB;"
 
-  log.Println("Creating user table (if not exist)")
+  log.Println("Creating User table (if not exist)")
 
   _, err = db.Exec(create_user_table)
   if err != nil {
-    log.Fatalln(err)
+	log.Fatalln(err)
   }
 
   log.Println("Creating files table (if not exist)")
 
   create_files_table :=
-    "CREATE TABLE IF NOT EXISTS `user_files`( " +
-    "`file_id` INT(11) NOT NULL AUTO_INCREMENT, " +
-    "`user_id` INT(11) NOT NULL, " +
-    "`mime_type` VARCHAR(256) DEFAULT NULL, " +
-    "`file_name` VARCHAR(256) DEFAULT NULL, " +
-    "`file` LONGBLOB DEFAULT NULL, " +
-    "PRIMARY KEY (file_id) " +
-    ") engine=InnoDB;"
+	"CREATE TABLE IF NOT EXISTS `user_files`( " +
+	"`file_id` INT(11) NOT NULL AUTO_INCREMENT, " +
+	"`user_id` INT(11) NOT NULL, " +
+	"`mime_type` VARCHAR(256) DEFAULT NULL, " +
+	"`file_name` VARCHAR(256) DEFAULT NULL, " +
+	"`file` LONGBLOB DEFAULT NULL, " +
+	"PRIMARY KEY (file_id) " +
+	") engine=InnoDB;"
 
-    _, err = db.Exec(create_files_table)
-    if err != nil {
-      log.Fatalln(err)
-    }
+	_, err = db.Exec(create_files_table)
+	if err != nil {
+	  log.Fatalln(err)
+	}
 }
 
 func initTemplates() {
@@ -126,10 +92,6 @@ func main() {
   db = initDB()
   defer db.Close()
   initTemplates()
-
-  vlt = initVaultClient()
-
-  //log.Println(vlt.Sys().SealStatus())
 
   url := "0.0.0.0:1234" // Listen on all interfaces
 
@@ -149,9 +111,9 @@ func main() {
 }
 
 func indexHandler(w http.ResponseWriter, req *http.Request) {
-  err := tpl.ExecuteTemplate(w, "index.html", nil)
+  err := tpl.ExecuteTemplate(w, "index.gohtml", nil)
   if err != nil {
-    log.Fatalln(err)
+	log.Fatalln(err)
   }
 }
 
@@ -160,49 +122,48 @@ func downloadHandler(w http.ResponseWriter, req *http.Request) {
   p := req.URL.Path[len("/file/"):]
 
   if p == "" {
-    log.Println("no arg")
-    http.Error(w, "Get `filename` not specified in the URL", 400)
-    return
+	log.Println("no arg")
+	http.Error(w, "Get `filename` not specified in the URL", 400)
+	return
   }
 
   elements := strings.Split(p, "/")
   user_id, err := strconv.ParseInt(elements[0], 10, 64)
   if err != nil {
-    log.Fatalf("Error retrieving user_id: %s", err)
+	log.Fatalf("Error retrieving user_id: %s", err)
   }
 
   fname := elements[1]
 
   if fname == "" || user_id == 0 {
-    http.Error(w, "Get `filename` not specified in the URL", 400)
-    return
+	http.Error(w, "Get `filename` not specified in the URL", 400)
+	return
   }
   // retrieve the file
   f, err := getFileFromDB(fname, user_id)
   if err != nil {
-    log.Fatalf("Error retrieving file: %s", err)
+	log.Fatalf("Error retrieving file: %s", err)
   }
 
   usr := getUserByID(user_id)
   if err != nil {
-    log.Fatalf("Could not retrieve user for datakey: %s", err)
+	log.Fatalf("Could not retrieve User for datakey: %s", err)
   }
 
   f_size := strconv.Itoa(len(f.File))
   // decrypt files
-  key, err := vaultDecrypt(usr.Datakey)
+  key, err := secure.DecryptString(usr.Datakey)
   if err != nil {
-    log.Fatalf("Could not decrypt datakey: %s", err)
+	log.Fatalf("Could not decrypt datakey: %s", err)
   }
 
   log.Println(key)
 
-  dec_file, err := decryptFile(f.File, key)
+  dec_file, err := secure.DecryptFile(f.File, key)
 
   if err != nil {
-    log.Fatalf("Could not decrypt datakey: %s", err)
+	log.Fatalf("Could not decrypt datakey: %s", err)
   }
-
 
   // send file to client
   // set headers so the browser knows it is a download
@@ -214,8 +175,8 @@ func downloadHandler(w http.ResponseWriter, req *http.Request) {
 	io.Copy(w, bytes.NewReader(dec_file))
 }
 
-func getFileFromDB(fname string, user_id int64) (user_file, error) {
-  var f user_file
+func getFileFromDB(fname string, user_id int64) (models.UserFile, error) {
+  var f models.UserFile
   f.FileName = fname
   f.UserID = user_id
 
@@ -224,11 +185,11 @@ func getFileFromDB(fname string, user_id int64) (user_file, error) {
   rows, err := db.Query(query, fname, user_id)
 
   if err != nil {
-    log.Fatalln(err)
+	log.Fatalln(err)
   }
 
   for rows.Next() {
-    rows.Scan(&f.ID, &f.File, f.Mimetype)
+	rows.Scan(&f.ID, &f.File, f.Mimetype)
   }
 
   return f, err
@@ -236,16 +197,16 @@ func getFileFromDB(fname string, user_id int64) (user_file, error) {
 }
 
 func createHandler(w http.ResponseWriter, req *http.Request) {
-  err := tpl.ExecuteTemplate(w, "create.html", nil)
+  err := tpl.ExecuteTemplate(w, "create.gohtml", nil)
   if err != nil {
-    log.Fatalln(err)
+	log.Fatalln(err)
   }
 }
 
 func viewHandler(w http.ResponseWriter, req *http.Request) {
-  err := tpl.ExecuteTemplate(w, "view.html", getUsers(10))
+  err := tpl.ExecuteTemplate(w, "view.gohtml", getUsers(10))
   if err != nil {
-    log.Fatalln(err)
+	log.Fatalln(err)
   }
 }
 
@@ -253,25 +214,25 @@ func updateHandler(w http.ResponseWriter, req *http.Request) {
   p := req.URL.Path[len("/update"):]
 
   if p == "" || p == "/" {
-    log.Println("no arg")
-    err := tpl.ExecuteTemplate(w, "update.html", nil)
-    if err != nil {
-      log.Fatalln(err)
-    }
+	log.Println("no arg")
+	err := tpl.ExecuteTemplate(w, "update.gohtml", nil)
+	if err != nil {
+	  log.Fatalln(err)
+	}
   } else {
-    user_id, err := strconv.ParseInt(req.URL.Path[len("/update/"):], 0, 16)
-    if err != nil {
-      log.Fatalln(err)
-    }
-    log.Printf("user_id: %d", user_id)
-    usr := getUserByID(user_id)
+	user_id, err := strconv.ParseInt(req.URL.Path[len("/update/"):], 0, 16)
+	if err != nil {
+	  log.Fatalln(err)
+	}
+	log.Printf("user_id: %d", user_id)
+	usr := getUserByID(user_id)
 
-    log.Printf("user: %+v", usr)
+	log.Printf("User: %+v", usr)
 
-    err = tpl.ExecuteTemplate(w, "update.html", usr)
-    if err != nil {
-      log.Fatalln(err)
-    }
+	err = tpl.ExecuteTemplate(w, "update.gohtml", usr)
+	if err != nil {
+	  log.Fatalln(err)
+	}
   }
 }
 
@@ -279,29 +240,29 @@ func updateRecordHandler(w http.ResponseWriter, req *http.Request) {
   log.Println("handler")
 }
 
-func getUsers(limit int) []user {
+func getUsers(limit int) []models.User {
   rows, err := db.Query(
 		`SELECT ud.user_id,
-            ud.user_name,
-            ud.first_name,
-            ud.last_name,
-            ud.address,
-            GROUP_CONCAT(uf.file_name SEPARATOR ',')
-     FROM user_data AS ud, user_files AS uf
-     WHERE ud.user_id=uf.user_id
-     GROUP BY ud.user_id
-     LIMIT ?;`, limit)
+			ud.user_name,
+			ud.first_name,
+			ud.last_name,
+			ud.address,
+			GROUP_CONCAT(uf.file_name SEPARATOR ',')
+	 FROM user_data AS ud, user_files AS uf
+	 WHERE ud.user_id=uf.user_id
+	 GROUP BY ud.user_id
+	 LIMIT ?;`, limit)
 
   if err != nil {
-    log.Println(err)
+	log.Println(err)
   }
 
-  users := make([]user, 0, 10)
+  users := make([]models.User, 0, 10)
   for rows.Next() {
-		usr := user{}
-    var fnames string
+		usr := models.User{}
+	var fnames string
 		rows.Scan(&usr.ID, &usr.Username, &usr.FirstName, &usr.LastName, &usr.Address, &fnames)
-    usr.FileNames = strings.Split(fnames, ",")
+	usr.FileNames = strings.Split(fnames, ",")
 		users = append(users, usr)
 	}
 	log.Println(users)
@@ -309,57 +270,57 @@ func getUsers(limit int) []user {
   return users
 }
 
-func getUserByName(username, firstname, lastname string) user {
-  var usr user
+func getUserByName(username, firstname, lastname string) models.User {
+  var usr models.User
   rows, err := db.Query(`SELECT user_id, user_name, first_name, last_name, address
-    FROM users
-    WHERE user_name = ?
-    AND first_name = ?
-    AND last_name = ?`,
-    username, firstname, lastname)
+	FROM users
+	WHERE user_name = ?
+	AND first_name = ?
+	AND last_name = ?`,
+	username, firstname, lastname)
   if err != nil {
-  	log.Fatal(err)
+	log.Fatal(err)
   }
   defer rows.Close()
   for rows.Next() {
-    usr := user{}
-    rows.Scan(&usr.ID, &usr.Username, &usr.FirstName, &usr.LastName, &usr.Address)
+	usr := models.User{}
+	rows.Scan(&usr.ID, &usr.Username, &usr.FirstName, &usr.LastName, &usr.Address)
   }
   err = rows.Err()
   if err != nil {
-  	log.Fatal(err)
+	log.Fatal(err)
   }
   return usr
 }
 
-func getUserByID(user_id int64) user {
-  var usr user
+func getUserByID(user_id int64) models.User {
+  var usr models.User
   rows, err := db.Query(
 		`SELECT ud.user_id,
-            ud.user_name,
-            ud.first_name,
-            ud.last_name,
-            ud.address,
-            ud.datakey,
-            GROUP_CONCAT(uf.file_name SEPARATOR ',')
-     FROM user_data AS ud, user_files AS uf
-     WHERE ud.user_id=?
-     AND ud.user_id=uf.user_id
-     GROUP BY ud.user_id`, user_id)
+			ud.user_name,
+			ud.first_name,
+			ud.last_name,
+			ud.address,
+			ud.datakey,
+			GROUP_CONCAT(uf.file_name SEPARATOR ',')
+	 FROM user_data AS ud, user_files AS uf
+	 WHERE ud.user_id=?
+	 AND ud.user_id=uf.user_id
+	 GROUP BY ud.user_id`, user_id)
 
   if err != nil {
-  	log.Fatal(err)
+	log.Fatal(err)
   }
 
   defer rows.Close()
   for rows.Next() {
-    var fnames string
+	var fnames string
 		rows.Scan(&usr.ID, &usr.Username, &usr.FirstName, &usr.LastName, &usr.Address, &usr.Datakey, &fnames)
-    usr.FileNames = strings.Split(fnames, ",")
+	usr.FileNames = strings.Split(fnames, ",")
   }
   err = rows.Err()
   if err != nil {
-  	log.Fatal(err)
+	log.Fatal(err)
   }
   return usr
 }
@@ -367,22 +328,22 @@ func getUserByID(user_id int64) user {
 func getUserId(username, firstname, lastname string) int64 {
   rows, err := db.Query("SELECT user_id FROM users WHERE user_name = ? AND first_name = ? AND last_name = ?", username, firstname, lastname)
   if err != nil {
-  	log.Fatal(err)
+	log.Fatal(err)
   }
 
   defer rows.Close()
 
-  usr := user{}
+  usr := models.User{}
   for rows.Next() {
-  	err := rows.Scan(&usr.ID)
-  	if err != nil {
-  		log.Fatal(err)
-  	}
+	err := rows.Scan(&usr.ID)
+	if err != nil {
+		log.Fatal(err)
+	}
   }
 
   err = rows.Err()
   if err != nil {
-  	log.Fatal(err)
+	log.Fatal(err)
   }
 
   return usr.ID
@@ -391,151 +352,85 @@ func getUserId(username, firstname, lastname string) int64 {
 // form endpoint
 func createRecordHandler(w http.ResponseWriter, req *http.Request) {
   if req.Method == http.MethodPost {
-    var err error
-    usr := user{}
+	var err error
+	usr := models.User{}
 		usr.Username = req.FormValue("username")
 		usr.FirstName = req.FormValue("firstname")
 		usr.LastName = req.FormValue("lastname")
-    usr.Address = req.FormValue("address")
+	usr.Address = req.FormValue("address")
 
-    secret, err := getDatakey()
-    if err != nil {
-      log.Println(err)
-    }
+	secret, err := secure.GetDatakey()
+	if err != nil {
+	  log.Println(err)
+	}
 
-    // retrieve ciphertext to save, plaintext to encrypt files
-    ciphertext := secret.Data["ciphertext"].(string)
-    plaintext, err := base64.StdEncoding.DecodeString(secret.Data["plaintext"].(string))
-    if err != nil {
-      log.Printf("Error decoding base64: %s", err)
-    }
+	// retrieve ciphertext to save, plaintext to encrypt files
+	ciphertext := secret.Data["ciphertext"].(string)
+	plaintext, err := base64.StdEncoding.DecodeString(secret.Data["plaintext"].(string))
+	if err != nil {
+	  log.Printf("Error decoding base64: %s", err)
+	}
 
-    log.Printf("Secret ciphertext: %s, plaintext: %s", ciphertext, plaintext)
+	log.Printf("Secret ciphertext: %s, plaintext: %s", ciphertext, plaintext)
 
-    result, err := db.Exec(
+	result, err := db.Exec(
 			"INSERT INTO user_data (user_name, first_name, last_name, address, datakey) VALUES (?, ?, ?, ?, ?)",
 			usr.Username,
 			usr.FirstName,
 			usr.LastName,
 			usr.Address,
-      ciphertext,
+	  ciphertext,
 		)
 
-    if err != nil {
-      log.Println(err)
-    }
+	if err != nil {
+	  log.Println(err)
+	}
 
-    file, handler, err := req.FormFile("userfile")
-    if err == nil && file != nil && handler != nil {
-      log.Printf("Found a formfile: %s with headers: %s", handler.Filename, handler.Header.Get("Content-Type"))
-      if err != nil {
-        log.Println(err)
-      }
+	file, handler, err := req.FormFile("userfile")
+	if err == nil && file != nil && handler != nil {
+	  log.Printf("Found a formfile: %s with headers: %s", handler.Filename, handler.Header.Get("Content-Type"))
+	  if err != nil {
+		log.Println(err)
+	  }
 
-      filedata, err := ioutil.ReadAll(file)
+	  filedata, err := ioutil.ReadAll(file)
 
-      if err != nil {
-        log.Printf("Error reading file data: %s", err)
-      }
+	  if err != nil {
+		log.Printf("Error reading file data: %s", err)
+	  }
 
-      user_id, err := result.LastInsertId()
-      if err != nil {
-        log.Println(err)
-      }
+	  user_id, err := result.LastInsertId()
+	  if err != nil {
+		log.Println(err)
+	  }
 
-      encryptedFile := encryptFile(filedata, plaintext)
+	  encryptedFile := secure.EncryptFile(filedata, plaintext)
 
-      _, err = db.Exec(
-        "INSERT INTO `user_files` (`user_id`, `mime_type`, `file_name`, `file`) VALUES (?, ?, ?, ?)",
-        user_id,
-        handler.Header.Get("Content-Type"), // need user_id
-        handler.Filename,
-        encryptedFile,
-      )
-      defer file.Close()
-      if err != nil {
-        log.Printf("Error saving file: %s", err)
-      }
-    } else {
-      log.Printf("Error retrieving file: %s", err)
-    }
+	  _, err = db.Exec(
+		"INSERT INTO `user_files` (`user_id`, `mime_type`, `file_name`, `file`) VALUES (?, ?, ?, ?)",
+		user_id,
+		handler.Header.Get("Content-Type"), // need user_id
+		handler.Filename,
+		encryptedFile,
+	  )
+	  defer file.Close()
+	  if err != nil {
+		log.Printf("Error saving file: %s", err)
+	  }
+	} else {
+	  log.Printf("Error retrieving file: %s", err)
+	}
 
-    log.Printf("Saved from form: Username: %s, FirstName: %s, LastName: %s, Address: %s", usr.Username, usr.FirstName, usr.LastName, usr.Address)
-		err = tpl.ExecuteTemplate(w, "create.html", map[string]interface{} {
-      "success": true,
-      "username": usr.Username,
-    })
+	log.Printf("Saved from form: Username: %s, FirstName: %s, LastName: %s, Address: %s", usr.Username, usr.FirstName, usr.LastName, usr.Address)
+		err = tpl.ExecuteTemplate(w, "create.gohtml", map[string]interface{} {
+	  "success": true,
+	  "username": usr.Username,
+	})
 
-    if err != nil {
-      log.Println(err)
-    }
+	if err != nil {
+	  log.Println(err)
+	}
 		return
 	}
 	http.Error(w, "Method Not Supported", http.StatusMethodNotAllowed)
-}
-
-func getDatakey() (*api.Secret, error) {
-  datakey, err := vlt.Logical().Write("transit/datakey/plaintext/" + KEY_NAME, nil)
-  return datakey, err
-}
-
-func encryptFile(contents []byte, key []byte) ([]byte) {
-  block, err := aes.NewCipher(key)
-  if err != nil {
-    log.Fatalf("Error creating cipher: %s", err)
-  }
-
-  nonce := make([]byte, 12)
-  if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-    log.Fatalf("Error creating nonce: %s", err)
-  }
-
-  aesgcm, err := cipher.NewGCM(block)
-  if err != nil {
-    log.Fatalf("Error creating aesgcm: %s", err)
-  }
-
-  ciphertext := aesgcm.Seal(nil, nonce, contents, nil)
-  c_text_w_nonce := make([]byte, cap(ciphertext) + 12)
-  copy(c_text_w_nonce[0:12], nonce)
-  copy(c_text_w_nonce[12:], ciphertext)
-
-  return c_text_w_nonce
-}
-
-func decryptFile(ciphertext []byte, key []byte) ([]byte, error) {
-  block, err := aes.NewCipher(key)
-  if err != nil {
-    log.Fatalf("Error creating cipher: %s", err)
-  }
-
-  nonce := ciphertext[0:12]
-
-  aesgcm, err := cipher.NewGCM(block)
-  if err != nil {
-    log.Fatalf("Error creating aesgcm: %s", err)
-  }
-
-  contents, err := aesgcm.Open(nil, nonce, ciphertext[12:], nil)
-  if err != nil {
-    log.Fatalf("Error decrypting file: %s", err)
-  }
-  return contents, err
-}
-
-func vaultDecrypt(ciphertext string) ([]byte, error) {
-  decrypted_contents, err := vlt.Logical().Write("transit/decrypt/" + KEY_NAME, map[string]interface{} {
-    "ciphertext": ciphertext,
-  })
-  log.Printf("Decrypted: %+v", decrypted_contents)
-  if err != nil {
-    log.Fatalf("Error decrypting file: %s", err)
-  }
-
-  decoded, err := base64.StdEncoding.DecodeString(decrypted_contents.Data["plaintext"].(string))
-  if err != nil {
-    log.Fatalf("Error decoding decrypted contents: %s", err)
-  }
-
-  return decoded, err
 }
