@@ -7,6 +7,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"strings"
+	"github.com/norhe/vault-transit-datakey-example/secure"
 )
 
 //var db *sql.DB
@@ -142,6 +143,13 @@ func GetUsers(limit int) []models.User {
 		var fnames string
 		rows.Scan(&usr.ID, &usr.Username, &usr.FirstName, &usr.LastName, &usr.Address, &fnames)
 		usr.FileNames = strings.Split(fnames, ",")
+
+		// decrypt address for display in UI
+		decrypt_addr, err := secure.DecryptString(usr.Address)
+		if err != nil {
+			log.Printf("Could not decrypt address")
+		}
+		usr.Address = string(decrypt_addr)
 		users = append(users, usr)
 	}
 	log.Println(users)
